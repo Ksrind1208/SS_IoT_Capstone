@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>COLDWATCH</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        body { font-family: sans-serif; margin: 20px; }
+        .status { padding: 10px; color: white; border-radius: 5px; display: inline-block; }
+        .Compliant { background: green; }
+        .Warning { background: red; }
+        table { border-collapse: collapse; width: 100%; margin-top: 20px; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: center; }
+        .filter-info { 
+            background: #f0f8ff; 
+            padding: 8px; 
+            border-radius: 4px; 
+            margin: 10px 0; 
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <h1>COLDWATCH</h1>
+    <div id="statusBadge" class="status">Loading...</div>
+    <canvas id="tempChart" height="100"></canvas>
+
+    <h2>Check Violations</h2>
+    <label>Violation duration (minutes): </label>
+    <input type="number" id="violationMinutes" value="15" min="1" style="width:60px;">
+    <button onclick="checkViolations()">Check</button>
+
+    <h2>Events</h2>
+    <div id="filterInfo" class="filter-info" style="display:none;"></div>
+    <table>
+        <thead>
+            <tr><th>ID</th><th>Device</th><th>Type</th><th>Start</th><th>End</th><th>Duration (min)</th></tr>
+        </thead>
+        <tbody id="eventsTable"></tbody>
+    </table>
+    <button onclick="window.location='/export_csv'">Export CSV</button>
+
+    <script>
+        let chart;
+        let isFiltered = false;
+
+        function displayEvents(events, filterMinutes = null) {
+            const tbody = document.getElementById("eventsTable");
+            const filterInfo = document.getElementById("filterInfo");
+            
+            tbody.innerHTML = "";
+            events.forEach(e => {
+                tbody.innerHTML += `<tr>
+                    <td>${e.id}</td>
+                    <td>${e.device_id}</td>
+                    <td>${e.type}</td>
+                    <td>${e.started_at}</td>
+                    <td>${e.ended_at || ''}</td>
+                    <td>${e.duration_min || ''}</td>
+                </tr>`;
+            });
+
+            // Hiển thị thông tin filter
+            if (filterMinutes !== null) {
+                filterInfo.textContent = `Showing violations ≥ ${filterMinutes} minutes (${events.length} events)`;
+                filterInfo.style.display = 'block';
+                isFiltered = true;
+            } else {
+                filterInfo.style.display = 'none';
+                isFiltered = false;
+            }
+        }
+
+        function fetchData() {
+            fetch("/data").then(r => r.json()).then(data => {
+                document.getElementById("statusBadge").innerText = data.status;
+                document.getElementById("statusBadge").className = "status " + data.status;
+
+                // Chart
+                const labels = data.readings.map(r => r.ts);
+                const temps = data.readings.map(r => r.t_c);
+                if (chart) chart.destroy();
+                chart = new Chart(document.getElementById("tempChart"), {
+                    type: 'line',
+                    data: { 
+                        labels: labels, 
+                        datasets: [{ 
+                            label: 'Temperature (°C)', 
+                            data: temps, 
+                            borderColor: 'blue', 
+                            fill: false 
+                        }] 
+                    },
+                });
+
+                // Chỉ cập nhật events nếu không đang filter
+                if (!isFiltered) {
+                    displayEvents(data.events);
+                }
+            });
+        }
+
+        function checkViolations() {
+            const minutes = document.getElementById("violationMinutes").value;
+            
+            // Disable button và show loading
+            const btn = event.target;
+            btn.disabled = true;
+            btn.textContent = 'Processing...';
+            
+            fetch(`/check_violations?minutes=${minutes}`)
+                .then(r => r.json())
+                .then(res => {
+                    if (res.status === "ok") {
+                        displayEvents(res.events, minutes);
+                        alert(`Processed violations for ${minutes} minutes. Found ${res.events.length} violations ≥ ${minutes} minutes`);
+                    } else {
+                        alert('Error checking violations: ' + res.message);
+                    }
+                })
+                .finally(() => {
+                    // Re-enable button
+                    btn.disabled = false;
+                    btn.textContent = 'Check';
+                });
+        }
+
+        function showAllEvents() {
+            fetchData(); // Sẽ load lại tất cả events
+        }
+
+        setInterval(() => {
+            // Chỉ auto-refresh status và chart, không làm ảnh hưởng đến filter events
+            fetch("/data").then(r => r.json()).then(data => {
+                document.getElementById("statusBadge").innerText = data.status;
+                document.getElementById("statusBadge").className = "status " + data.status;
+
+                const labels = data.readings.map(r => r.ts);
+                const temps = data.readings.map(r => r.t_c);
+                if (chart) chart.destroy();
+                chart = new Chart(document.getElementById("tempChart"), {
+                    type: 'line',
+                    data: { 
+                        labels: labels, 
+                        datasets: [{ 
+                            label: 'Temperature (°C)', 
+                            data: temps, 
+                            borderColor: 'blue', 
+                            fill: false 
+                        }] 
+                    },
+                });
+            });
+        }, 5000);
+        
+        fetchData();
+    </script>
+</body>
+</html>
