@@ -17,17 +17,61 @@
             margin: 10px 0; 
             font-style: italic;
         }
+        .controls {
+            margin: 20px 0;
+            padding: 15px;
+            background: #f9f9f9;
+            border-radius: 5px;
+        }
+        .btn {
+            padding: 8px 15px;
+            margin: 0 5px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        .btn-primary {
+            background: #007bff;
+            color: white;
+        }
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+        }
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .chart-container {
+            position: relative;
+            height: 500px;
+            margin: 20px 0;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            padding: 10px;
+        }
+        
+        #violationMinutes {
+            width: 80px;
+            padding: 5px;
+            font-size: 14px;
+        }
     </style>
 </head>
 <body>
     <h1>COLDWATCH</h1>
     <div id="statusBadge" class="status">Loading...</div>
-    <canvas id="tempChart" height="100"></canvas>
+    
+    <div class="chart-container">
+        <canvas id="tempChart"></canvas>
+    </div>
 
-    <h2>Check Violations</h2>
-    <label>Violation duration (minutes): </label>
-    <input type="number" id="violationMinutes" value="15" min="1" style="width:60px;">
-    <button onclick="checkViolations()">Check</button>
+    <div class="controls">
+        <h2>Violation Analysis</h2>
+        <label>Violation threshold (minutes): </label>
+        <input type="number" id="violationMinutes" value="15" min="1">
+        <button class="btn btn-primary" onclick="checkViolations()">Analyze Violations</button>
+    </div>
 
     <h2>Events</h2>
     <div id="filterInfo" class="filter-info" style="display:none;"></div>
@@ -37,11 +81,14 @@
         </thead>
         <tbody id="eventsTable"></tbody>
     </table>
-    <button onclick="window.location='/export_csv'">Export CSV</button>
+    <button class="btn btn-secondary" onclick="window.location='/export_csv'">Export CSV</button>
 
     <script>
         let chart;
         let isFiltered = false;
+        let currentViolationThreshold = 15; // Giữ nguyên threshold mặc định
+        let allEvents = [];
+        let allReadings = [];
 
         function displayEvents(events, filterMinutes = null) {
             const tbody = document.getElementById("eventsTable");
@@ -53,13 +100,13 @@
                     <td>${e.id}</td>
                     <td>${e.device_id}</td>
                     <td>${e.type}</td>
-                    <td>${e.started_at}</td>
-                    <td>${e.ended_at || ''}</td>
+                    <td>${new Date(e.started_at).toLocaleString()}</td>
+                    <td>${e.ended_at ? new Date(e.ended_at).toLocaleString() : ''}</td>
                     <td>${e.duration_min || ''}</td>
                 </tr>`;
             });
 
-            // Hiển thị thông tin filter
+            // Display filter information
             if (filterMinutes !== null) {
                 filterInfo.textContent = `Showing violations ≥ ${filterMinutes} minutes (${events.length} events)`;
                 filterInfo.style.display = 'block';
@@ -70,89 +117,210 @@
             }
         }
 
-        function fetchData() {
-            fetch("/data").then(r => r.json()).then(data => {
-                document.getElementById("statusBadge").innerText = data.status;
-                document.getElementById("statusBadge").className = "status " + data.status;
+        function updateStatus() {
+            // Sử dụng thuật toán giống như trong input event listener
+            let status = "Compliant";
+            
+            if (allReadings.length > 0) {
+                const recentReadings = allReadings.slice(-20);
+                let currentViolationStart = null;
+                
+                for (let i = 0; i < recentReadings.length; i++) {
+                    const reading = recentReadings[i];
+                    if (reading.t_c > 4.0) {
+                        if (currentViolationStart === null) {
+                            currentViolationStart = new Date(reading.ts);
+                        }
+                    } else {
+                        currentViolationStart = null;
+                    }
+                }
+                
+                if (currentViolationStart) {
+                    const lastReading = recentReadings[recentReadings.length - 1];
+                    const lastTime = new Date(lastReading.ts);
+                    const violationDuration = (lastTime - currentViolationStart) / (1000 * 60);
+                    
+                    if (violationDuration >= currentViolationThreshold) {
+                        status = "Warning";
+                    }
+                }
+                
+                if (status === "Compliant" && allEvents.length > 0) {
+                    const recentEvents = allEvents.filter(e => 
+                        e.type === 'temp_violation' && 
+                        (e.duration_min || 0) >= currentViolationThreshold
+                    );
+                    
+                    const now = new Date();
+                    for (let event of recentEvents) {
+                        const eventStart = new Date(event.started_at);
+                        const timeSinceStart = (now - eventStart) / (1000 * 60);
+                        
+                        if (!event.ended_at || timeSinceStart <= (event.duration_min + 5)) {
+                            status = "Warning";
+                            break;
+                        }
+                    }
+                }
+            }
+            
+            document.getElementById("statusBadge").innerText = status;
+            document.getElementById("statusBadge").className = "status " + status;
+        }
 
-                // Chart
-                const labels = data.readings.map(r => r.ts);
-                const temps = data.readings.map(r => r.t_c);
-                if (chart) chart.destroy();
-                chart = new Chart(document.getElementById("tempChart"), {
-                    type: 'line',
-                    data: { 
-                        labels: labels, 
-                        datasets: [{ 
-                            label: 'Temperature (°C)', 
-                            data: temps, 
-                            borderColor: 'blue', 
-                            fill: false 
-                        }] 
+        function initChart() {
+            // Khởi tạo chart ngay khi load trang với dữ liệu trống
+            const ctx = document.getElementById("tempChart");
+            if (chart) chart.destroy();
+            
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: { 
+                    labels: [], 
+                    datasets: [{ 
+                        label: 'Temperature (°C)', 
+                        data: [], 
+                        borderColor: 'blue', 
+                        backgroundColor: 'rgba(0, 0, 255, 0.1)',
+                        fill: false,
+                        tension: 0.1
+                    }] 
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    scales: {
+                        x: {
+                            ticks: {
+                                maxRotation: 45,
+                                minRotation: 45
+                            }
+                        },
+                        y: {
+                            title: {
+                                display: true,
+                                text: 'Temperature (°C)'
+                            },
+                            grid: {
+                                color: function(context) {
+                                    if (context.tick.value === 4.0) {
+                                        return 'red';
+                                    }
+                                    return 'rgba(0, 0, 0, 0.1)';
+                                }
+                            }
+                        }
                     },
-                });
-
-                // Chỉ cập nhật events nếu không đang filter
-                if (!isFiltered) {
-                    displayEvents(data.events);
+                    plugins: {
+                        legend: {
+                            display: true
+                        }
+                    }
                 }
             });
         }
 
-        function checkViolations() {
-            const minutes = document.getElementById("violationMinutes").value;
+        function updateChart() {
+            if (!chart) {
+                initChart();
+            }
             
-            // Disable button và show loading
+            if (!allReadings.length) return;
+            
+            // Format labels với ngày tháng năm dd/mm/yy - giờ phút giây và xoay chéo
+            const labels = allReadings.map(r => {
+                const date = new Date(r.ts);
+                const day = String(date.getDate()).padStart(2, '0');
+                const month = String(date.getMonth() + 1).padStart(2, '0');
+                const year = String(date.getFullYear()).slice(-2);
+                const dateStr = `${day}/${month}/${year}`;
+                const timeStr = date.toLocaleTimeString();
+                return `${dateStr} - ${timeStr}`;
+            });
+            const temps = allReadings.map(r => r.t_c);
+            
+            chart.data.labels = labels;
+            chart.data.datasets[0].data = temps;
+            chart.update();
+        }
+
+        function fetchData() {
+            fetch("/data").then(r => r.json()).then(data => {
+                allReadings = data.readings;
+                allEvents = data.events;
+                
+                updateStatus();
+                updateChart();
+                
+                if (isFiltered && currentViolationThreshold > 0) {
+                    const filteredEvents = allEvents.filter(e => 
+                        e.type === 'temp_violation' && 
+                        (e.duration_min || 0) >= currentViolationThreshold
+                    );
+                    displayEvents(filteredEvents, currentViolationThreshold);
+                } else {
+                    displayEvents(allEvents);
+                }
+                
+            }).catch(error => {
+                console.error('Error fetching data:', error);
+            });
+        }
+
+        function checkViolations() {
+            const minutes = parseInt(document.getElementById("violationMinutes").value);
+            
             const btn = event.target;
+            const originalText = btn.textContent;
             btn.disabled = true;
             btn.textContent = 'Processing...';
             
-            fetch(`/check_violations?minutes=${minutes}`)
-                .then(r => r.json())
-                .then(res => {
-                    if (res.status === "ok") {
-                        displayEvents(res.events, minutes);
-                        alert(`Processed violations for ${minutes} minutes. Found ${res.events.length} violations ≥ ${minutes} minutes`);
-                    } else {
-                        alert('Error checking violations: ' + res.message);
-                    }
-                })
-                .finally(() => {
-                    // Re-enable button
+            // Thay vì gọi API, xử lý trực tiếp từ dữ liệu đã có
+            try {
+                currentViolationThreshold = minutes;
+                
+                // Lọc events theo threshold ngay lập tức
+                const filteredEvents = allEvents.filter(e => 
+                    e.type === 'temp_violation' && 
+                    (e.duration_min || 0) >= minutes
+                );
+                
+                // Cập nhật display
+                isFiltered = true;
+                displayEvents(filteredEvents, minutes);
+                
+                // Cập nhật status với threshold mới
+                updateStatus();
+                
+                // Hiện thông báo kết quả
+                const message = `Analysis complete for ${minutes} minutes threshold.\nFound ${filteredEvents.length} violations ≥ ${minutes} minutes`;
+                setTimeout(() => alert(message), 100);
+                
+            } catch (error) {
+                console.error('Error:', error);
+                alert('Error processing request: ' + error.message);
+            } finally {
+                // Re-enable button ngay lập tức
+                setTimeout(() => {
                     btn.disabled = false;
-                    btn.textContent = 'Check';
-                });
+                    btn.textContent = originalText;
+                }, 100);
+            }
         }
 
-        function showAllEvents() {
-            fetchData(); // Sẽ load lại tất cả events
-        }
-
+        // Auto-refresh every 5 seconds
         setInterval(() => {
-            // Chỉ auto-refresh status và chart, không làm ảnh hưởng đến filter events
-            fetch("/data").then(r => r.json()).then(data => {
-                document.getElementById("statusBadge").innerText = data.status;
-                document.getElementById("statusBadge").className = "status " + data.status;
-
-                const labels = data.readings.map(r => r.ts);
-                const temps = data.readings.map(r => r.t_c);
-                if (chart) chart.destroy();
-                chart = new Chart(document.getElementById("tempChart"), {
-                    type: 'line',
-                    data: { 
-                        labels: labels, 
-                        datasets: [{ 
-                            label: 'Temperature (°C)', 
-                            data: temps, 
-                            borderColor: 'blue', 
-                            fill: false 
-                        }] 
-                    },
-                });
-            });
-        }, 5000);
+            fetchData();
+        }, 2000);
         
-        fetchData();
+        // Không có event listener cho input - chỉ dùng khi nhấn nút
+        
+        // Initial load
+        window.addEventListener('load', function() {
+            initChart(); // Khởi tạo chart ngay khi load trang
+            fetchData();
+        });
     </script>
 </body>
 </html>
