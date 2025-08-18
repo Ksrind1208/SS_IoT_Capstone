@@ -106,5 +106,5 @@ void loop() {
     Serial.println("Không tìm thấy cảm biến!");
   }
 
-  delay(2000); // gửi mỗi 5 giây
+  delay(2000); // gửi mỗi 2 giây
 }

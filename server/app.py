@@ -24,15 +24,12 @@ def parse_datetime_safely(datetime_str):
     if not datetime_str:
         return None
     try:
-        # Parse with dateutil to handle various formats
         dt = isoparse(datetime_str)
-        # Convert to naive datetime (remove timezone info)
         if dt.tzinfo is not None:
             dt = dt.replace(tzinfo=None)
         return dt
     except:
         try:
-            # Fallback to standard parsing
             return datetime.fromisoformat(datetime_str.replace('Z', '').replace('+00:00', ''))
         except:
             return None
@@ -60,7 +57,7 @@ def get_current_violation_status(threshold_minutes=15):
     
     # Tìm violation period hiện tại (nếu có)
     violation_start = None
-    for reading in reversed(recent_readings):  # Duyệt ngược từ mới nhất
+    for reading in reversed(recent_readings):  
         if reading["t_c"] > TEMP_LIMIT:
             if violation_start is None:
                 violation_start = parse_datetime_safely(reading["ts"])
@@ -91,7 +88,6 @@ def data():
     status = "Compliant"
     
     try:
-        # Kiểm tra violations trong events có kéo dài >= 1 phút không
         if events:
             recent_violations = [e for e in events if e["type"] == "temp_violation" and (e["duration_min"] or 0) >= 1]
             if recent_violations:
@@ -102,14 +98,12 @@ def data():
                     if not event_start:
                         continue
                         
-                    # Nếu event chưa có end time hoặc mới kết thúc gần đây
                     if not event["ended_at"]:
                         status = "Warning"
                         break
                     else:
                         event_end = parse_datetime_safely(event["ended_at"])
                         if event_end:
-                            # Nếu event kết thúc trong 5 phút gần đây, có thể vẫn đang có vấn đề
                             time_since_end = (now - event_end).total_seconds() / 60
                             if time_since_end <= 5:
                                 status = "Warning"
@@ -117,14 +111,14 @@ def data():
         
         # Kiểm tra readings gần nhất
         if readings and status == "Compliant":
-            recent_readings = readings[-10:]  # 10 readings gần nhất
+            recent_readings = readings[-10:]  
             violation_count = sum(1 for r in recent_readings if r["t_c"] > TEMP_LIMIT)
-            if violation_count >= 3:  # Nếu có 3+ readings vượt ngưỡng
+            if violation_count >= 3:  
                 status = "Warning"
                 
     except Exception as e:
         print(f"Error calculating status: {e}")
-        status = "Compliant"  # Default fallback
+        status = "Compliant"  
     
     return jsonify({
         "readings": [dict(r) for r in readings],
@@ -140,7 +134,7 @@ def check_violations():
         # Gửi lệnh xử lý tới subscriber qua MQTT
         publish.single(MQTT_CONTROL_TOPIC, str(minutes), hostname=MQTT_BROKER)
         
-        # Đợi một chút để subscriber xử lý
+        # Đợi để subscriber xử lý
         time.sleep(2)
         
     except Exception as e:

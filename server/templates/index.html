@@ -86,7 +86,7 @@
     <script>
         let chart;
         let isFiltered = false;
-        let currentViolationThreshold = 15; // Giữ nguyên threshold mặc định
+        let currentViolationThreshold = 15; // threshold mặc định
         let allEvents = [];
         let allReadings = [];
 
@@ -106,7 +106,6 @@
                 </tr>`;
             });
 
-            // Display filter information
             if (filterMinutes !== null) {
                 filterInfo.textContent = `Showing violations ≥ ${filterMinutes} minutes (${events.length} events)`;
                 filterInfo.style.display = 'block';
@@ -118,7 +117,7 @@
         }
 
         function updateStatus() {
-            // Sử dụng thuật toán giống như trong input event listener
+            // Cập nhật status
             let status = "Compliant";
             
             if (allReadings.length > 0) {
@@ -276,7 +275,6 @@
             btn.disabled = true;
             btn.textContent = 'Processing...';
             
-            // Thay vì gọi API, xử lý trực tiếp từ dữ liệu đã có
             try {
                 currentViolationThreshold = minutes;
                 
@@ -301,7 +299,6 @@
                 console.error('Error:', error);
                 alert('Error processing request: ' + error.message);
             } finally {
-                // Re-enable button ngay lập tức
                 setTimeout(() => {
                     btn.disabled = false;
                     btn.textContent = originalText;
@@ -309,14 +306,11 @@
             }
         }
 
-        // Auto-refresh every 5 seconds
+        // Refresh 5s
         setInterval(() => {
             fetchData();
         }, 2000);
         
-        // Không có event listener cho input - chỉ dùng khi nhấn nút
-        
-        // Initial load
         window.addEventListener('load', function() {
             initChart(); // Khởi tạo chart ngay khi load trang
             fetchData();

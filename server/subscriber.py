@@ -21,7 +21,6 @@ def normalize_datetime(dt):
     """Convert datetime to string in consistent format without timezone"""
     if isinstance(dt, str):
         dt = isoparse(dt)
-    # Remove timezone info and return ISO format
     if dt.tzinfo is not None:
         dt = dt.replace(tzinfo=None)
     return dt.isoformat()
@@ -32,13 +31,12 @@ def parse_datetime_safely(datetime_str):
         return None
     try:
         dt = isoparse(datetime_str)
-        # Convert to naive datetime (remove timezone info)
+        #Chuyển đổi 
         if dt.tzinfo is not None:
             dt = dt.replace(tzinfo=None)
         return dt
     except:
         try:
-            # Fallback to standard parsing
             return datetime.fromisoformat(datetime_str.replace('Z', '').replace('+00:00', ''))
         except:
             return None
@@ -120,7 +118,6 @@ def process_violations(minutes):
             ts_raw = reading["ts"]
             device_id = reading["device_id"]
             
-            # Parse timestamp safely
             ts = parse_datetime_safely(ts_raw)
             if not ts:
                 print(f"[subscriber.py] Warning: Could not parse timestamp {ts_raw}")
@@ -236,7 +233,6 @@ def on_message(client, userdata, msg):
             """, (device_id, t_c, ts))
             conn.commit()
 
-            # Realtime event processing để tạo events ngay lập tức cho violations >= 1 phút
             current_time = parse_datetime_safely(ts)
             if not current_time:
                 print(f"[subscriber.py] Warning: Could not parse timestamp {ts}")
@@ -329,9 +325,8 @@ def on_connect(client, userdata, flags, rc):
 def on_disconnect(client, userdata, rc):
     print(f"[subscriber.py] Disconnected from MQTT broker: {rc}")
 
-# Main execution
 if __name__ == "__main__":
-    # Initialize database
+    # Khởi tạo
     init_database()
     
     # Setup MQTT client
